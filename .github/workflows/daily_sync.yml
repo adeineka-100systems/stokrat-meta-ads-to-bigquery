@@ -1,0 +1,38 @@
+name: Sync Meta Ads to BigQuery
+
+on:
+  schedule:
+    - cron: '30 3 * * *' # Запускається щодня о 3:30 ранку
+  workflow_dispatch: # Дозволяє запускати вручну з вкладки Actions
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install facebook_business google-cloud-bigquery pandas
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Run sync script
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_DATASET_ID: ${{ secrets.GCP_DATASET_ID }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+        run: |
+          python sync_meta_to_bq.py
