@@ -34,5 +34,6 @@ jobs:
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          META_AD_ACCOUNT_ID_SELLERS: ${{ secrets.META_AD_ACCOUNT_ID_SELLERS }}
         run: |
           python sync_meta_to_bq.py
