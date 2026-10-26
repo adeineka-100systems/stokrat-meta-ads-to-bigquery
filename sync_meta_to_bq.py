@@ -5,7 +5,7 @@ from facebook_business.adobjects.adsinsights import AdsInsights
 from google.cloud import bigquery
 import os
 
-# Налаштування credentials для BigQuery (через змінні середовища або файл)
+# Налаштування credentials для BigQuery
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 DATASET_ID = os.environ.get("GCP_DATASET_ID")
 TABLE_ID = "meta_ads_insights"
@@ -21,7 +21,6 @@ FacebookAdsApi.init(app_id=APP_ID, app_secret=APP_SECRET, access_token=ACCESS_TO
 def fetch_meta_insights():
     account = AdAccount(AD_ACCOUNT_ID)
     
-    # Вибираємо дані за вчора, щоб щоденний Cron збирав повний день
     params = {
         'level': 'ad',  # розбивка до рівня конкретного оголошення (Ad Name)
         'time_increment': 1,
@@ -39,15 +38,14 @@ def fetch_meta_insights():
         AdsInsights.Field.spend,
         AdsInsights.Field.impressions,
         AdsInsights.Field.clicks,
-        AdsInsights.Field.actions,      # містить ліди, покупки тощо
-        AdsInsights.Field.action_values # містить суму доходу (purchase value)
+        AdsInsights.Field.actions,      
+        AdsInsights.Field.action_values 
     ]
 
     insights = account.get_insights(fields=fields, params=params)
     rows_to_insert = []
     
     for insight in insights:
-        # Парсимо дії (конверсії, ліди, покупка)
         actions = insight.get('actions', [])
         purchases = 0
         leads = 0
@@ -58,7 +56,6 @@ def fetch_meta_insights():
             elif 'lead' in action_type:
                 leads += int(float(action.get('value', 0)))
 
-        # Парсимо дохід (purchase_value)
         action_values = insight.get('action_values', [])
         purchase_value = 0.0
         for val in action_values:
@@ -92,7 +89,28 @@ def insert_to_bigquery(data):
     client = bigquery.Client()
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
     
-    # Використовуємо запит з видаленням дублів за ту саму дату (опціонально) або просте вставлення
+    # Визначаємо схему таблиці
+    schema = [
+        bigquery.SchemaField("date", "DATE"),
+        bigquery.SchemaField("campaign_id", "STRING"),
+        bigquery.SchemaField("campaign_name", "STRING"),
+        bigquery.SchemaField("adset_id", "STRING"),
+        bigquery.SchemaField("adset_name", "STRING"),
+        bigquery.SchemaField("ad_id", "STRING"),
+        bigquery.SchemaField("ad_name", "STRING"),
+        bigquery.SchemaField("spend", "FLOAT"),
+        bigquery.SchemaField("impressions", "INTEGER"),
+        bigquery.SchemaField("clicks", "INTEGER"),
+        bigquery.SchemaField("purchases", "INTEGER"),
+        bigquery.SchemaField("purchase_value", "FLOAT"),
+        bigquery.SchemaField("leads", "INTEGER"),
+    ]
+
+    # Створюємо таблицю, якщо вона ще не існує
+    table = bigquery.Table(table_ref, schema=schema)
+    table = client.create_table(table, exists_ok=True)
+    print(f"Таблиця {table.project}.{table.dataset_id}.{table.table_id} перевірена/створена успішно.")
+
     errors = client.insert_rows_json(table_ref, data)
     if errors == []:
         print(f"Успішно завантажено {len(data)} рядків у BigQuery!")
