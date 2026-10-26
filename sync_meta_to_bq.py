@@ -8,21 +8,35 @@ import os
 # Налаштування credentials для BigQuery
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 DATASET_ID = os.environ.get("GCP_DATASET_ID")
-TABLE_ID = "meta_ads_insights"
 
 # Налаштування Meta API
 APP_ID = os.environ.get("META_APP_ID")
 APP_SECRET = os.environ.get("META_APP_SECRET")
 ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN")
-AD_ACCOUNT_ID = os.environ.get("META_AD_ACCOUNT_ID")  # формат: act_XXXXXXXXX
+
+# Словник кабінетів та відповідних їм таблиць у BigQuery
+ACCOUNTS_CONFIG = {
+    "buyers": {
+        "account_id": os.environ.get("META_AD_ACCOUNT_ID"),
+        "table_id": "meta_ads_insights_buyers"
+    },
+    "sellers": {
+        "account_id": os.environ.get("META_AD_ACCOUNT_ID_SELLERS"),
+        "table_id": "meta_ads_insights_sellers"
+    }
+}
 
 FacebookAdsApi.init(app_id=APP_ID, app_secret=APP_SECRET, access_token=ACCESS_TOKEN)
 
-def fetch_meta_insights():
-    account = AdAccount(AD_ACCOUNT_ID)
+def fetch_meta_insights(account_id):
+    if not account_id:
+        print(f"Пропускаємо кабінет: ID не задано.")
+        return []
+        
+    account = AdAccount(account_id)
     
     params = {
-        'level': 'ad',  # розбивка до рівня конкретного оголошення (Ad Name)
+        'level': 'ad',  # розбивка до рівня конкретного оголошення
         'time_increment': 1,
         'date_preset': 'yesterday', 
     }
@@ -42,7 +56,12 @@ def fetch_meta_insights():
         AdsInsights.Field.action_values 
     ]
 
-    insights = account.get_insights(fields=fields, params=params)
+    try:
+        insights = account.get_insights(fields=fields, params=params)
+    except Exception as e:
+        print(f"Помилка при отриманні даних для кабінету {account_id}: {e}")
+        return []
+        
     rows_to_insert = []
     
     for insight in insights:
@@ -81,15 +100,14 @@ def fetch_meta_insights():
 
     return rows_to_insert
 
-def insert_to_bigquery(data):
+def insert_to_bigquery(data, table_id):
     if not data:
-        print("Немає даних для завантаження за вчора.")
+        print(f"Немає даних для завантаження в таблицю {table_id} за вчора.")
         return
 
     client = bigquery.Client()
-    table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+    table_ref = f"{PROJECT_ID}.{DATASET_ID}.{table_id}"
     
-    # Визначаємо схему таблиці
     schema = [
         bigquery.SchemaField("date", "DATE"),
         bigquery.SchemaField("campaign_id", "STRING"),
@@ -106,17 +124,18 @@ def insert_to_bigquery(data):
         bigquery.SchemaField("leads", "INTEGER"),
     ]
 
-    # Створюємо таблицю, якщо вона ще не існує
     table = bigquery.Table(table_ref, schema=schema)
     table = client.create_table(table, exists_ok=True)
-    print(f"Таблиця {table.project}.{table.dataset_id}.{table.table_id} перевірена/створена успішно.")
+    print(f"Таблиця {table.project}.{table.dataset_id}.{table.table_id} перевірена/створена.")
 
     errors = client.insert_rows_json(table_ref, data)
     if errors == []:
-        print(f"Успішно завантажено {len(data)} рядків у BigQuery!")
+        print(f"Успішно завантажено {len(data)} рядків у таблицю {table_id}!")
     else:
-        print(f"Помилки при вставці в BigQuery: {errors}")
+        print(f"Помилки при вставці в BigQuery для {table_id}: {errors}")
 
 if __name__ == "__main__":
-    data = fetch_meta_insights()
-    insert_to_bigquery(data)
+    for key, config in ACCOUNTS_CONFIG.items():
+        print(f"Обробка кабінету ({key}): {config['account_id']}")
+        data = fetch_meta_insights(config['account_id'])
+        insert_to_bigquery(data, config['table_id'])
